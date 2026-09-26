@@ -1,0 +1,7 @@
+node_modules/
+
+# Local secrets
+.env
+
+# Runtime state (dashboard layout)
+data/

@@ -1,0 +1,4 @@
+# Local settings; on Vercel these live in Redis (see src/storage.js).
+data/
+.env
+test/

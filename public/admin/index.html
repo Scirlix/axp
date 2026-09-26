@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AXP Dashboard</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="axp_logo.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="dashboard.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <img class="logo" src="axp_logo.png" alt="AXP">
+      <span class="topbar-title">Dashboard</span>
+      <div class="topbar-status" id="status" hidden></div>
+      <button class="btn btn-ghost" id="signOut" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <!-- Sign in -->
+  <main class="login" id="loginView" hidden>
+    <form class="card login-card" id="loginForm">
+      <h1>Sign in</h1>
+      <p class="muted">Enter the admin token. It is printed in the server console
+        when the backend starts, or set as <code>ADMIN_TOKEN</code> in <code>.env</code>.</p>
+      <label class="field">
+        <span>Admin token</span>
+        <input type="password" id="tokenInput" autocomplete="current-password" required>
+      </label>
+      <p class="error" id="loginError" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+    </form>
+  </main>
+
+  <!-- Dashboard -->
+  <main class="page" id="mainView" hidden>
+    <div class="page-head">
+      <h1>App quotes</h1>
+      <p class="muted">Choose which instruments appear in the app. Changes reach every
+        user within a few seconds of saving.</p>
+    </div>
+
+    <div class="grid">
+      <section class="card" aria-labelledby="homeTitle">
+        <div class="card-head">
+          <div>
+            <h2 id="homeTitle">Home page</h2>
+            <p class="muted small">The “Quotes” section on the Home screen, in this order.</p>
+          </div>
+          <span class="count" id="homeCount"></span>
+        </div>
+        <ol class="home-list" id="homeList"></ol>
+        <p class="empty" id="homeEmpty" hidden>No instruments on Home. Turn on
+          <strong>Home</strong> for an instrument to add it.</p>
+      </section>
+
+      <section class="card" aria-labelledby="allTitle">
+        <div class="card-head">
+          <div>
+            <h2 id="allTitle">All instruments</h2>
+            <p class="muted small"><strong>Markets</strong> lists it on the Markets page.
+              <strong>Home</strong> adds it to the Home page.</p>
+          </div>
+        </div>
+        <div id="groups"></div>
+      </section>
+    </div>
+
+    <p class="error-banner" id="upstreamErrors" role="status" hidden></p>
+
+    <div class="page-head deposit-head">
+      <h1>Deposits</h1>
+      <p class="muted">Deposit requests are sent to you on WhatsApp. Choose which
+        payment channels the app offers and where the messages go. Changes reach
+        every user within a few seconds of saving.</p>
+    </div>
+
+    <div class="grid">
+      <section class="card" aria-labelledby="depositSettingsTitle">
+        <div class="card-head">
+          <div>
+            <h2 id="depositSettingsTitle">Where requests go</h2>
+            <p class="muted small">Include the country code. Leave the number empty
+              to close deposits entirely.</p>
+          </div>
+        </div>
+        <label class="field">
+          <span>WhatsApp number</span>
+          <input type="tel" id="whatsappInput" placeholder="+964 770 222 0011"
+            autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Minimum deposit</span>
+          <input type="number" id="minAmountInput" min="1" step="1">
+        </label>
+        <p class="muted small" id="depositClosedHint" hidden>
+          No WhatsApp number set — the app tells users deposits are unavailable.
+        </p>
+      </section>
+
+      <section class="card" aria-labelledby="depositMethodsTitle">
+        <div class="card-head">
+          <div>
+            <h2 id="depositMethodsTitle">Payment channels</h2>
+            <p class="muted small">Turn a channel off to hide it in the app straight
+              away. The logo URL is shown on the payment option; leave it empty for
+              a plain tile.</p>
+          </div>
+          <span class="count" id="methodCount"></span>
+        </div>
+        <div id="methodList"></div>
+      </section>
+    </div>
+  </main>
+
+  <div class="savebar" id="saveBar" hidden>
+    <div class="savebar-inner">
+      <div>
+        <strong>Unsaved changes</strong>
+        <span class="muted small" id="budgetPreview"></span>
+      </div>
+      <div class="savebar-actions">
+        <button class="btn btn-ghost" id="discardBtn">Discard</button>
+        <button class="btn btn-primary" id="saveBtn">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <template id="methodItemTpl">
+    <div class="method">
+      <label class="switch">
+        <input type="checkbox" class="enabled">
+        <span></span>
+      </label>
+      <img class="method-logo" alt="" hidden>
+      <span class="method-logo method-logo-blank" aria-hidden="true"></span>
+      <span class="method-fields">
+        <input type="text" class="method-name" aria-label="Payment channel name">
+        <input type="url" class="method-logo-url" placeholder="https://… logo image"
+          aria-label="Logo image URL">
+      </span>
+    </div>
+  </template>
+
+  <template id="homeItemTpl">
+    <li class="home-item">
+      <span class="pos"></span>
+      <span class="badge"></span>
+      <span class="inst"><span class="sym"></span><span class="name muted small"></span></span>
+      <span class="price"></span>
+      <span class="actions">
+        <button class="icon-btn up" aria-label="Move up" title="Move up">↑</button>
+        <button class="icon-btn down" aria-label="Move down" title="Move down">↓</button>
+        <button class="icon-btn remove" aria-label="Remove from Home" title="Remove from Home">✕</button>
+      </span>
+    </li>
+  </template>
+</body>
+</html>
