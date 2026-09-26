@@ -14,6 +14,12 @@ import { dirname } from 'node:path';
  * care which one they got.
  */
 
+/**
+ * A save that could not be persisted. Its message is written for the admin
+ * reading it in the dashboard, so routes pass it straight through.
+ */
+export class StorageError extends Error {}
+
 /** A JSON file on disk. Used for local development and `npm start`. */
 export class FileStorage {
   constructor(path) {
@@ -31,11 +37,23 @@ export class FileStorage {
   }
 
   async write(value) {
-    await mkdir(dirname(this.path), { recursive: true });
-    // Write-then-rename so a crash never leaves a half-written file.
-    const tmp = `${this.path}.tmp`;
-    await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`);
-    await rename(tmp, this.path);
+    try {
+      await mkdir(dirname(this.path), { recursive: true });
+      // Write-then-rename so a crash never leaves a half-written file.
+      const tmp = `${this.path}.tmp`;
+      await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`);
+      await rename(tmp, this.path);
+    } catch (err) {
+      // On Vercel everything outside /tmp is read-only, so this is what a
+      // save hits when no Redis store is configured. Saying so beats the
+      // generic 500 the admin used to get.
+      throw new StorageError(
+        isServerless()
+          ? 'Settings cannot be saved: this deployment has no storage. Add a ' +
+            'Redis store (Vercel → Storage → Upstash), then redeploy.'
+          : `Settings could not be written to ${this.path}: ${err.message}`,
+      );
+    }
   }
 }
 
@@ -80,7 +98,11 @@ export class RedisStorage {
   }
 
   async write(value) {
-    await this.#command('SET', this.key, JSON.stringify(value));
+    try {
+      await this.#command('SET', this.key, JSON.stringify(value));
+    } catch (err) {
+      throw new StorageError(`Settings could not be saved: ${err.message}`);
+    }
   }
 }
 

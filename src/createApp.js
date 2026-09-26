@@ -8,6 +8,7 @@ import { CATALOG } from './catalog.js';
 import { DepositError } from './depositStore.js';
 import { LayoutError, MAX_HOME } from './layoutStore.js';
 import { createPortalProxy } from './portalProxy.js';
+import { StorageError } from './storage.js';
 
 const DASHBOARD_DIR = fileURLToPath(new URL('../public/admin', import.meta.url));
 
@@ -193,6 +194,9 @@ export function createApp({ quotes, layout, accounts, deposits, auth, config }) 
       await layout.save(req.body);
     } catch (err) {
       if (err instanceof LayoutError) return res.status(400).json({ error: err.message });
+      // The store explains itself (no Redis on Vercel, disk full, …); the
+      // dashboard shows the message as-is.
+      if (err instanceof StorageError) return res.status(503).json({ error: err.message });
       return next(err);
     }
     // New instruments are fetched in the background; Twelve Data's
@@ -209,6 +213,7 @@ export function createApp({ quotes, layout, accounts, deposits, auth, config }) 
       await deposits.save(req.body);
     } catch (err) {
       if (err instanceof DepositError) return res.status(400).json({ error: err.message });
+      if (err instanceof StorageError) return res.status(503).json({ error: err.message });
       return next(err);
     }
     const on = deposits.settings.methods.filter((m) => m.enabled).map((m) => m.name);

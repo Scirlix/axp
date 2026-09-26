@@ -13,6 +13,7 @@ import { CreditLimiter } from '../src/creditLimiter.js';
 import { DepositError, DepositStore, validateDeposit } from '../src/depositStore.js';
 import { LayoutError, LayoutStore, validateLayout } from '../src/layoutStore.js';
 import { QuoteService } from '../src/quoteService.js';
+import { StorageError } from '../src/storage.js';
 
 const ADMIN = { email: 'dashboard@axp.test', password: 'test-password' };
 const config = (key) =>
@@ -376,6 +377,22 @@ test('repeated failures lock an address out for the window', () => {
   throttle.fail('1.2.3.4', now + 2000);
   throttle.succeed('1.2.3.4');
   assert.equal(throttle.retryAfter('1.2.3.4', now + 2000), 0);
+});
+
+test('a save that cannot be persisted says why instead of failing with a 500', async () => {
+  const { admin, deposits } = await startServer();
+  // What Vercel's read-only filesystem does when no Redis store is set up.
+  deposits.storage.write = async () => {
+    throw new StorageError('Settings cannot be saved: this deployment has no storage.');
+  };
+  const res = await admin('/deposit', {
+    method: 'PUT',
+    body: JSON.stringify({ ...deposits.settings, whatsappNumber: '9647700000000' }),
+  });
+  assert.equal(res.status, 503);
+  assert.match((await res.json()).error, /no storage/);
+  // The rejected save must not linger in memory either.
+  assert.equal(deposits.settings.whatsappNumber, '');
 });
 
 test('dashboard page is served', async () => {
