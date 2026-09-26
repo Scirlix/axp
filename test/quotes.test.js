@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 
 import { AccountService, AuthError, NotConfiguredError } from '../src/accountService.js';
+import { AdminAuth, LoginThrottle } from '../src/adminAuth.js';
 import { createApp } from '../src/app.js';
 import { DEFAULT_LAYOUT } from '../src/catalog.js';
 import { loadConfig } from '../src/config.js';
@@ -13,7 +14,13 @@ import { DepositError, DepositStore, validateDeposit } from '../src/depositStore
 import { LayoutError, LayoutStore, validateLayout } from '../src/layoutStore.js';
 import { QuoteService } from '../src/quoteService.js';
 
-const config = (key) => loadConfig(key ? { TWELVE_DATA_API_KEY: key } : {});
+const ADMIN = { email: 'dashboard@axp.test', password: 'test-password' };
+const config = (key) =>
+  loadConfig({
+    ...(key ? { TWELVE_DATA_API_KEY: key } : {}),
+    ADMIN_EMAIL: ADMIN.email,
+    ADMIN_PASSWORD: ADMIN.password,
+  });
 const ok = (body) => new Response(JSON.stringify(body), { status: 200 });
 
 const TD_QUOTES = {
@@ -222,7 +229,7 @@ async function startServer({ key = 'k', accounts = stubAccounts() } = {}) {
     layout,
     accounts,
     deposits,
-    adminToken: 'secret',
+    auth: new AdminAuth(cfg.admin),
     config: cfg,
   }).listen(0);
   cleanups.push(async () => {
@@ -230,12 +237,24 @@ async function startServer({ key = 'k', accounts = stubAccounts() } = {}) {
     await rm(dir, { recursive: true, force: true });
   });
   const base = `http://localhost:${server.address().port}`;
+  const signIn = (credentials = ADMIN) =>
+    fetch(`${base}/v1/admin/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(credentials),
+    });
+  // Every admin call below uses a token from the real sign-in route.
+  const { session } = await (await signIn()).json();
   const admin = (path, init = {}) =>
     fetch(`${base}/v1/admin${path}`, {
       ...init,
-      headers: { authorization: 'Bearer secret', 'content-type': 'application/json', ...init.headers },
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        'content-type': 'application/json',
+        ...init.headers,
+      },
     });
-  return { base, admin, layout, quotes, deposits, dir };
+  return { base, admin, signIn, session, layout, quotes, deposits, dir };
 }
 
 test('GET /v1/quotes returns layout, metadata and CORS headers', async () => {
@@ -253,13 +272,43 @@ test('GET /v1/quotes returns layout, metadata and CORS headers', async () => {
   assert.deepEqual(filtered.quotes.map((q) => q.symbol), ['EUR/USD', 'XAU/USD']);
 });
 
-test('admin API requires the token', async () => {
-  const { base, admin } = await startServer();
+test('admin sign-in issues a session token and rejects bad credentials', async () => {
+  const { signIn, session } = await startServer();
+
+  assert.equal(session.email, ADMIN.email);
+  assert.ok(Date.parse(session.expiresAt) > Date.now());
+
+  // The email is matched case-insensitively; the password is not.
+  assert.equal((await signIn({ ...ADMIN, email: 'Dashboard@AXP.test' })).status, 200);
+
+  const wrongPassword = await signIn({ ...ADMIN, password: 'test-Password' });
+  assert.equal(wrongPassword.status, 401);
+  // The message must not say which half was wrong.
+  assert.match((await wrongPassword.json()).error, /Incorrect email or password/);
+
+  assert.equal((await signIn({ email: 'someone@else.test', password: 'x' })).status, 401);
+  assert.equal((await signIn({ email: ADMIN.email })).status, 400);
+});
+
+test('admin API requires a session token', async () => {
+  const { base, admin, session } = await startServer();
   assert.equal((await fetch(`${base}/v1/admin/state`)).status, 401);
   assert.equal(
     (await fetch(`${base}/v1/admin/state`, { headers: { authorization: 'Bearer wrong' } })).status,
     401,
   );
+  // A token with the claims edited but the old signature kept is not a token.
+  const [claims, signature] = session.token.split('.');
+  const forged = `${Buffer.from(
+    JSON.stringify({ sub: ADMIN.email, exp: Date.now() + 864e5 }),
+  ).toString('base64url')}.${signature}`;
+  assert.equal(
+    (await fetch(`${base}/v1/admin/state`, { headers: { authorization: `Bearer ${forged}` } }))
+      .status,
+    401,
+  );
+  assert.ok(claims);
+
   const res = await admin('/state');
   assert.equal(res.status, 200);
   const state = await res.json();
@@ -291,6 +340,42 @@ test('saving a layout persists it and updates what the app receives', async () =
   assert.deepEqual(body.layout, next);
   assert.deepEqual(body.quotes.map((q) => q.symbol), ['EUR/USD', 'XAU/USD', 'XPT/USD']);
   assert.equal(body.quotes.find((q) => q.symbol === 'XPT/USD').price, 1510.5);
+});
+
+test('sessions expire, survive a restart, and die with the password', () => {
+  const auth = new AdminAuth({ ...ADMIN, sessionMs: 60_000 });
+  const { token } = auth.signIn(ADMIN.email, ADMIN.password);
+  assert.equal(auth.verify(token).sub, ADMIN.email);
+
+  // A second instance — a Vercel cold start — derives the same signing key,
+  // so a token issued before it started is still good.
+  assert.ok(new AdminAuth(ADMIN).verify(token));
+  // Changing the password invalidates what is already out there.
+  assert.equal(new AdminAuth({ ...ADMIN, password: 'rotated' }).verify(token), null);
+
+  // An expired session is refused even though its signature is genuine.
+  const stale = new AdminAuth({ ...ADMIN, sessionMs: -1 });
+  assert.equal(stale.verify(stale.signIn(ADMIN.email, ADMIN.password).token), null);
+  assert.equal(auth.verify('nonsense'), null);
+  assert.equal(auth.verify(''), null);
+  assert.equal(new AdminAuth({}).configured, false);
+  assert.equal(new AdminAuth({}).signIn('', ''), null);
+});
+
+test('repeated failures lock an address out for the window', () => {
+  const throttle = new LoginThrottle({ limit: 3, windowMs: 1000 });
+  const now = Date.now();
+  for (let i = 0; i < 2; i++) throttle.fail('1.2.3.4', now);
+  assert.equal(throttle.retryAfter('1.2.3.4', now), 0);
+  throttle.fail('1.2.3.4', now);
+  assert.equal(throttle.retryAfter('1.2.3.4', now), 1);
+  // Other addresses are unaffected, and the window eventually passes.
+  assert.equal(throttle.retryAfter('5.6.7.8', now), 0);
+  assert.equal(throttle.retryAfter('1.2.3.4', now + 1001), 0);
+  // A success clears the count straight away.
+  throttle.fail('1.2.3.4', now + 2000);
+  throttle.succeed('1.2.3.4');
+  assert.equal(throttle.retryAfter('1.2.3.4', now + 2000), 0);
 });
 
 test('dashboard page is served', async () => {

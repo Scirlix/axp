@@ -1,9 +1,9 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import express from 'express';
 
 import { AuthError, NotConfiguredError } from './accountService.js';
+import { LoginThrottle } from './adminAuth.js';
 import { CATALOG } from './catalog.js';
 import { DepositError } from './depositStore.js';
 import { LayoutError, MAX_HOME } from './layoutStore.js';
@@ -19,7 +19,9 @@ const DASHBOARD_DIR = fileURLToPath(new URL('../public/admin', import.meta.url))
  *     POST /v1/auth/login     sign in to the AXP user portal (CRM)
  *     GET  /v1/account/summary  the user's real-account balances
  *     GET  /v1/deposit/config   payment channels + the WhatsApp number
- *   Admin (Bearer token)
+ *   Admin sign-in (public — it is the gate itself)
+ *     POST /v1/admin/login    email + password -> a session token
+ *   Admin (Authorization: Bearer <session token>)
  *     GET /v1/admin/state     catalogue, layout, quotes, deposits, status
  *     PUT /v1/admin/layout    save which instruments show on Home / Markets
  *     PUT /v1/admin/deposit   save payment channels and the WhatsApp number
@@ -30,11 +32,14 @@ const DASHBOARD_DIR = fileURLToPath(new URL('../public/admin', import.meta.url))
  *           layout: import('./layoutStore.js').LayoutStore,
  *           accounts: import('./accountService.js').AccountService,
  *           deposits: import('./depositStore.js').DepositStore,
- *           adminToken: string, config: object }} deps
+ *           auth: import('./adminAuth.js').AdminAuth, config: object }} deps
  */
-export function createApp({ quotes, layout, accounts, deposits, adminToken, config }) {
+export function createApp({ quotes, layout, accounts, deposits, auth, config }) {
   const app = express();
   app.disable('x-powered-by');
+  // Behind Vercel's proxy, so failed sign-ins are counted per client address
+  // rather than all landing in one bucket.
+  app.set('trust proxy', true);
 
   // ---------------------------------------------------------------- public
   const publicApi = express.Router();
@@ -121,8 +126,42 @@ export function createApp({ quotes, layout, accounts, deposits, adminToken, conf
   app.use('/portal', createPortalProxy(config.uptrader?.apiUrl));
 
   // ----------------------------------------------------------------- admin
+  // Sign-in is the one admin route without a token: it hands one out. Mounted
+  // on the app (not adminApi) so it sits in front of the auth middleware.
+  const throttle = new LoginThrottle();
+  app.post('/v1/admin/login', express.json({ limit: '4kb' }), (req, res) => {
+    const client = req.ip ?? 'unknown';
+    const wait = throttle.retryAfter(client);
+    if (wait) {
+      return res
+        .status(429)
+        .set('retry-after', String(wait))
+        .json({ error: `Too many sign-in attempts. Try again in ${Math.ceil(wait / 60)} min.` });
+    }
+
+    const { email, password } = req.body ?? {};
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+    if (!auth.configured) {
+      return res.status(503).json({
+        error: 'Dashboard sign-in is not configured. Set ADMIN_EMAIL and ADMIN_PASSWORD.',
+      });
+    }
+
+    const session = auth.signIn(email, password);
+    if (!session) {
+      throttle.fail(client);
+      // One message for both, so it never reveals which half was right.
+      return res.status(401).json({ error: 'Incorrect email or password.' });
+    }
+    throttle.succeed(client);
+    console.log(`[admin] signed in: ${session.email}`);
+    res.json({ session });
+  });
+
   const adminApi = express.Router();
-  adminApi.use(requireAdmin(adminToken));
+  adminApi.use(requireAdmin(auth));
   adminApi.use(express.json({ limit: '10kb' }));
 
   const state = () => ({
@@ -191,14 +230,14 @@ export function createApp({ quotes, layout, accounts, deposits, adminToken, conf
   return app;
 }
 
-/** Checks `Authorization: Bearer <token>` in constant time. */
-function requireAdmin(token) {
-  const digest = (s) => createHash('sha256').update(s).digest();
-  const expected = digest(token);
+/** Requires a live session token from POST /v1/admin/login. */
+function requireAdmin(auth) {
   return (req, res, next) => {
-    const match = /^Bearer (.+)$/.exec(req.get('authorization') ?? '');
-    if (!match || !timingSafeEqual(digest(match[1]), expected)) {
-      return res.status(401).json({ error: 'Invalid admin token.' });
+    const token = /^Bearer (.+)$/.exec(req.get('authorization') ?? '')?.[1];
+    if (!token || !auth.verify(token)) {
+      // The dashboard shows its sign-in form again on a 401, which also covers
+      // a session that simply expired.
+      return res.status(401).json({ error: 'Sign in required.' });
     }
     next();
   };

@@ -12,17 +12,22 @@ Quotes API and admin dashboard for the AXP Analytics app.
 
 ## Run
 
-Requires Node.js 20.12+.
+Requires Node.js 22 or 24. The upper bound in `engines` is deliberate: it keeps
+Vercel from moving the deployment to a new major on its own.
 
 ```sh
-cp .env.example .env    # set ADMIN_TOKEN and (optionally) TWELVE_DATA_API_KEY
+cp .env.example .env    # set ADMIN_EMAIL / ADMIN_PASSWORD, optionally TWELVE_DATA_API_KEY
 npm install
 npm start               # or: npm run dev  (restarts on file changes)
 ```
 
 - API: `http://localhost:8080`
-- Dashboard: `http://localhost:8080/admin` — sign in with `ADMIN_TOKEN`. If it
-  isn't set, a random token is generated and printed at startup.
+- Dashboard: `http://localhost:8080/admin` — sign in with `ADMIN_EMAIL` and
+  `ADMIN_PASSWORD`. Sign-in returns a session token, valid for 12 hours, that
+  the dashboard keeps in `sessionStorage`. Sessions are signed with a key
+  derived from the credentials rather than stored, so they hold across restarts
+  and Vercel cold starts, and changing the password ends all of them. Ten
+  failed attempts from one address lock it out for 15 minutes.
 
 ## Instruments and sources
 
@@ -70,8 +75,12 @@ Public (CORS enabled, used by the app):
 fetched yet. `stale` turns true when a quote hasn't refreshed for 3× its
 polling interval.
 
-Admin (`Authorization: Bearer <ADMIN_TOKEN>`, same-origin only):
+Admin (same-origin only):
 
+- `POST /v1/admin/login` — `{ "email": "…", "password": "…" }` →
+  `{ "session": { "token": "…", "email": "…", "expiresAt": "…" } }`. The token
+  goes in `Authorization: Bearer <token>` on the routes below; they answer 401
+  once it expires.
 - `GET /v1/admin/state` — catalogue, layout, quotes, polling status.
 - `PUT /v1/admin/layout` — `{ "home": [...], "markets": [...] }`. Validated
   (known symbols, no duplicates, max 8 on Home) and saved to `LAYOUT_FILE`.
@@ -80,8 +89,9 @@ Admin (`Authorization: Bearer <ADMIN_TOKEN>`, same-origin only):
 
 ```
 src/
-  server.js          entry: loads .env, admin token, layout, starts polling
+  server.js          entry: loads .env, credentials, layout, starts polling
   app.js             Express routes, admin auth, dashboard static files
+  adminAuth.js       dashboard sign-in: session tokens + attempt throttling
   quoteService.js    polling schedule, credit budget, in-memory cache
   catalog.js         every instrument the backend can price
   layoutStore.js     Home / Markets layout: validation + JSON persistence

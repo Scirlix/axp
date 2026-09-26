@@ -1,8 +1,9 @@
 // AXP admin dashboard: choose which instruments the app shows on Home and
-// Markets. Talks to /v1/admin/* with the admin token as a Bearer header.
+// Markets. Signing in with the dashboard email and password returns a session
+// token, which every /v1/admin/* call then sends as a Bearer header.
 
 const $ = (id) => document.getElementById(id);
-const TOKEN_KEY = 'axp-admin-token';
+const TOKEN_KEY = 'axp-admin-session';
 const REFRESH_MS = 5000;
 
 let token = readToken();
@@ -23,7 +24,7 @@ async function api(path, options = {}) {
   });
   const body = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    signOut('Your admin token was rejected. Please sign in again.');
+    signOut('Your session has ended. Please sign in again.');
     throw new Error('unauthorized');
   }
   if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
@@ -61,10 +62,32 @@ function signOut(message) {
   $('loginView').hidden = false;
   $('loginError').hidden = !message;
   $('loginError').textContent = message || '';
-  $('tokenInput').focus();
+  $('passwordInput').value = '';
+  ($('emailInput').value ? $('passwordInput') : $('emailInput')).focus();
 }
 
-async function signIn(value) {
+/**
+ * Trades the credentials for a session token. A rejection the admin can act on
+ * (wrong password, too many attempts) is flagged `shown` so the caller puts it
+ * in the form rather than treating it as a backend outage.
+ */
+async function requestSession(email, password) {
+  const res = await fetch('/v1/admin/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(body.error || `Sign-in failed (${res.status}).`);
+    err.shown = true;
+    throw err;
+  }
+  return body.session.token;
+}
+
+/** Opens the dashboard with [value] as the session token. */
+async function openDashboard(value) {
   token = value;
   const state = await api('/state'); // throws + shows login on 401
   storeToken(value);
@@ -527,15 +550,23 @@ function toast(message, bad = false) {
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const button = e.target.querySelector('button[type="submit"]');
   $('loginError').hidden = true;
+  button.disabled = true;
   try {
-    await signIn($('tokenInput').value.trim());
-    $('tokenInput').value = '';
+    await openDashboard(
+      await requestSession($('emailInput').value.trim(), $('passwordInput').value),
+    );
+    $('passwordInput').value = '';
   } catch (err) {
-    if (err.message !== 'unauthorized') {
-      $('loginError').textContent = `Could not reach the backend: ${err.message}`;
-      $('loginError').hidden = false;
-    }
+    if (err.message === 'unauthorized') return; // signOut() already explained it
+    $('loginError').textContent = err.shown
+      ? err.message
+      : `Could not reach the backend: ${err.message}`;
+    $('loginError').hidden = false;
+    $('passwordInput').select();
+  } finally {
+    button.disabled = false;
   }
 });
 $('signOut').addEventListener('click', () => signOut());
@@ -562,7 +593,8 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if (token) {
-  signIn(token).catch(() => {});
+  // A stored session may have expired; api() falls back to the form on 401.
+  openDashboard(token).catch(() => {});
 } else {
   signOut();
 }

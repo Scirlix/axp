@@ -11,7 +11,12 @@ export function loadConfig(env = process.env) {
 
   return {
     port: int('PORT', 8080),
-    adminToken: env.ADMIN_TOKEN?.trim() || null,
+    // Dashboard sign-in. Both are needed for /admin to be reachable; they are
+    // credentials, so they live in the environment, never in the repo.
+    admin: {
+      email: env.ADMIN_EMAIL?.trim() || null,
+      password: env.ADMIN_PASSWORD || null,
+    },
     layoutFile: env.LAYOUT_FILE?.trim() || 'data/layout.json',
     depositFile: env.DEPOSIT_FILE?.trim() || 'data/deposit.json',
     // Serverless hosts freeze between requests, so the polling timers never

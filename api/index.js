@@ -1,6 +1,5 @@
-import { randomBytes } from 'node:crypto';
-
 import { AccountService } from '../src/accountService.js';
+import { AdminAuth } from '../src/adminAuth.js';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { DepositStore } from '../src/depositStore.js';
@@ -23,6 +22,9 @@ import { checkPersistence, pickStorage } from '../src/storage.js';
  *    QuoteService.ensureFresh).
  *  - Settings go to Redis when it is configured, because the filesystem here
  *    is read-only (see storage.js).
+ *  - Dashboard sessions must survive a cold start, which they do because
+ *    AdminAuth signs them with a key derived from ADMIN_EMAIL /
+ *    ADMIN_PASSWORD: every instance derives the same one.
  */
 
 let ready = null;
@@ -30,15 +32,11 @@ let ready = null;
 async function boot() {
   const config = loadConfig();
 
-  // Without ADMIN_TOKEN each cold start would invent a different one and
-  // nobody could stay signed in to the dashboard. Fail loudly instead.
-  let adminToken = config.adminToken;
-  if (!adminToken) {
-    adminToken = randomBytes(18).toString('base64url');
+  const auth = new AdminAuth(config.admin);
+  if (!auth.configured) {
     console.warn(
-      '[admin] No ADMIN_TOKEN set. A random one was generated for this ' +
-        'instance and will change on every cold start — set ADMIN_TOKEN in ' +
-        'the project environment variables.',
+      '[admin] ADMIN_EMAIL / ADMIN_PASSWORD are not set in the project ' +
+        'environment variables, so /admin cannot be signed into.',
     );
   }
 
@@ -56,7 +54,7 @@ async function boot() {
   await quotes.start(layout.activeSymbols());
 
   const accounts = new AccountService(config);
-  return createApp({ quotes, layout, accounts, deposits, adminToken, config });
+  return createApp({ quotes, layout, accounts, deposits, auth, config });
 }
 
 export default async function handler(req, res) {

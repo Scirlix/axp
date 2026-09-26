@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 process.env.VERCEL = '1';
-process.env.ADMIN_TOKEN = 'smoke-token';
+process.env.ADMIN_EMAIL = 'smoke@axp.test';
+process.env.ADMIN_PASSWORD = 'smoke-password';
 process.env.UPTRADER_API_URL = 'https://login.axp-portal.com';
 const { default: handler } = await import('../api/index.js');
 const server = createServer((req, res) => handler(req, res));

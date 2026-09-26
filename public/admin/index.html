@@ -23,11 +23,15 @@
   <main class="login" id="loginView" hidden>
     <form class="card login-card" id="loginForm">
       <h1>Sign in</h1>
-      <p class="muted">Enter the admin token. It is printed in the server console
-        when the backend starts, or set as <code>ADMIN_TOKEN</code> in <code>.env</code>.</p>
+      <p class="muted">Use the dashboard email and password.</p>
       <label class="field">
-        <span>Admin token</span>
-        <input type="password" id="tokenInput" autocomplete="current-password" required>
+        <span>Email</span>
+        <input type="email" id="emailInput" autocomplete="username"
+          autocapitalize="none" spellcheck="false" required>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" id="passwordInput" autocomplete="current-password" required>
       </label>
       <p class="error" id="loginError" role="alert" hidden></p>
       <button class="btn btn-primary" type="submit">Sign in</button>

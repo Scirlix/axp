@@ -1,7 +1,7 @@
-import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 
 import { AccountService } from './accountService.js';
+import { AdminAuth } from './adminAuth.js';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { DepositStore } from './depositStore.js';
@@ -13,14 +13,12 @@ if (existsSync('.env')) process.loadEnvFile('.env');
 
 const config = loadConfig();
 
-let adminToken = config.adminToken;
-if (!adminToken) {
-  adminToken = randomBytes(18).toString('base64url');
-  console.log(
-    `[admin] No ADMIN_TOKEN set — generated one for this run: ${adminToken}\n` +
-      '        Add ADMIN_TOKEN=... to .env to keep it the same across restarts.',
-  );
-}
+const auth = new AdminAuth(config.admin);
+console.log(
+  auth.configured
+    ? `[admin] dashboard sign-in: ${auth.email}`
+    : '[admin] ADMIN_EMAIL / ADMIN_PASSWORD are not set — nobody can sign in to /admin',
+);
 
 const layout = new LayoutStore(config.layoutFile);
 await layout.load();
@@ -54,7 +52,7 @@ console.log(
 );
 
 // All interfaces, so phones / emulators on the LAN can reach it.
-const server = createApp({ quotes, layout, accounts, deposits, adminToken, config }).listen(
+const server = createApp({ quotes, layout, accounts, deposits, auth, config }).listen(
   config.port,
   '0.0.0.0',
   () => {
