@@ -1,7 +1,7 @@
 import { AccountService } from '../src/accountService.js';
 import { AdminAuth } from '../src/adminAuth.js';
-import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { createApp } from '../src/createApp.js';
 import { DepositStore } from '../src/depositStore.js';
 import { LayoutStore } from '../src/layoutStore.js';
 import { QuoteService } from '../src/quoteService.js';
@@ -11,7 +11,7 @@ import { checkPersistence, pickStorage } from '../src/storage.js';
  * Vercel entry point. Everything under / is routed here by vercel.json, so
  * this module owns the whole API and the admin dashboard.
  *
- * Differences from src/server.js, which still runs the long-lived local
+ * Differences from src/standalone.js, which still runs the long-lived local
  * server:
  *
  *  - Startup is lazy and memoised. A serverless instance handles many

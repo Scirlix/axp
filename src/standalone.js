@@ -2,11 +2,16 @@ import { existsSync } from 'node:fs';
 
 import { AccountService } from './accountService.js';
 import { AdminAuth } from './adminAuth.js';
-import { createApp } from './app.js';
 import { loadConfig } from './config.js';
+import { createApp } from './createApp.js';
 import { DepositStore } from './depositStore.js';
 import { LayoutStore } from './layoutStore.js';
 import { QuoteService } from './quoteService.js';
+
+// The long-lived server: `npm start`, local development, or any host that
+// runs a process. Vercel uses api/index.js instead. Named standalone.js
+// rather than server.js so Vercel does not mistake it for a framework entry
+// point and try to deploy it as a function — see createApp.js.
 
 // Local settings; real environment variables take precedence.
 if (existsSync('.env')) process.loadEnvFile('.env');

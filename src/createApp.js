@@ -11,6 +11,12 @@ import { createPortalProxy } from './portalProxy.js';
 
 const DASHBOARD_DIR = fileURLToPath(new URL('../public/admin', import.meta.url));
 
+// Named createApp.js, not app.js, on purpose: Vercel's backend-framework
+// detection treats src/app.js (and src/server.js) as an Express entry point
+// and deploys it as a second function. This module exports a factory, not an
+// app, so that function crashed on every request with "The default export must
+// be a function or server". api/index.js is the only entry point here.
+
 /**
  * Routes:
  *   Public (used by the app, CORS enabled)

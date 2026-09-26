@@ -6,9 +6,9 @@ import { after, test } from 'node:test';
 
 import { AccountService, AuthError, NotConfiguredError } from '../src/accountService.js';
 import { AdminAuth, LoginThrottle } from '../src/adminAuth.js';
-import { createApp } from '../src/app.js';
 import { DEFAULT_LAYOUT } from '../src/catalog.js';
 import { loadConfig } from '../src/config.js';
+import { createApp } from '../src/createApp.js';
 import { CreditLimiter } from '../src/creditLimiter.js';
 import { DepositError, DepositStore, validateDeposit } from '../src/depositStore.js';
 import { LayoutError, LayoutStore, validateLayout } from '../src/layoutStore.js';

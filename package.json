@@ -4,13 +4,13 @@
   "private": true,
   "description": "Quotes API for the AXP Analytics app",
   "type": "module",
-  "main": "src/server.js",
+  "main": "src/standalone.js",
   "engines": {
-    "node": ">=22 <25"
+    "node": "22.x"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "start": "node src/standalone.js",
+    "dev": "node --watch src/standalone.js",
     "test": "node --test"
   },
   "dependencies": {

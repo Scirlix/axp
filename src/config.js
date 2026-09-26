@@ -1,5 +1,5 @@
 /**
- * Reads settings from environment variables. `src/server.js` loads a local
+ * Reads settings from environment variables. `src/standalone.js` loads a local
  * `.env` first (real environment variables win).
  */
 export function loadConfig(env = process.env) {

@@ -12,8 +12,9 @@ Quotes API and admin dashboard for the AXP Analytics app.
 
 ## Run
 
-Requires Node.js 22 or 24. The upper bound in `engines` is deliberate: it keeps
-Vercel from moving the deployment to a new major on its own.
+Runs on Node.js 20.12+. `engines` pins `22.x` because that is the runtime
+Vercel deploys to; a newer Node runs the code locally just fine, npm only warns
+about the mismatch.
 
 ```sh
 cp .env.example .env    # set ADMIN_EMAIL / ADMIN_PASSWORD, optionally TWELVE_DATA_API_KEY
@@ -85,12 +86,30 @@ Admin (same-origin only):
 - `PUT /v1/admin/layout` — `{ "home": [...], "markets": [...] }`. Validated
   (known symbols, no duplicates, max 8 on Home) and saved to `LAYOUT_FILE`.
 
+## Deploy (Vercel)
+
+`api/index.js` is the only function: `vercel.json` rewrites every path to it,
+and it boots the app lazily per cold start. Set `ADMIN_EMAIL`, `ADMIN_PASSWORD`
+and the other variables from `.env.example` in the project's environment
+variables — they are read at build time, so **adding one only takes effect on
+the next deployment**.
+
+Two things to leave alone. `"framework": null` in `vercel.json` keeps Vercel's
+backend-framework detection off, and no file is named `app.js` or `server.js`
+(see `src/createApp.js`); with either of those, Vercel deploys a second
+function from `src/` that has no default export and every request fails with
+`FUNCTION_INVOCATION_FAILED`.
+
+Dashboard settings need a Redis store (Storage → Upstash) to survive a cold
+start; without one the function logs a warning and edits last only as long as
+the instance does.
+
 ## Project layout
 
 ```
 src/
-  server.js          entry: loads .env, credentials, layout, starts polling
-  app.js             Express routes, admin auth, dashboard static files
+  standalone.js      entry: loads .env, credentials, layout, starts polling
+  createApp.js       Express routes, admin auth, dashboard static files
   adminAuth.js       dashboard sign-in: session tokens + attempt throttling
   quoteService.js    polling schedule, credit budget, in-memory cache
   catalog.js         every instrument the backend can price
